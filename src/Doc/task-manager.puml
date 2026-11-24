@@ -1,0 +1,188 @@
+@startuml
+title Task Manager - Planned Class Diagram
+
+left to right direction
+skinparam classAttributeIconSize 0
+hide empty members
+
+package app {
+    class Main
+    class TestRunner
+}
+
+package api {
+    class TaskApi {
+        +createTask(request, idempotencyKey): ApiResponse
+        +getTask(id): ApiResponse
+        +listTasks(query): ApiResponse
+        +updateTask(id, request): ApiResponse
+        +deleteTask(id): ApiResponse
+        +createTaskFromText(text, idempotencyKey): ApiResponse
+        +createSubtask(parentId, request): ApiResponse
+        +listSubtasks(parentId): ApiResponse
+        +breakDownTask(id, idempotencyKey): ApiResponse
+        +listByPriority(level): ApiResponse
+    }
+
+    class ApiResponse {
+        -status: int
+        -body: Object
+        +toJson(): String
+    }
+
+    class ErrorResponseFactory {
+        +from(exception): ApiResponse
+        +fromUnexpected(exception): ApiResponse
+    }
+}
+
+package model {
+    class Task <<immutable>> {
+        -id: int
+        -title: String
+        -description: String
+        -completed: boolean
+        -dueDate: String
+        -priority: Priority
+        -parentId: Integer
+        -createdAt: long
+        +toMap(): Map
+    }
+
+    class TaskBuilder <<Builder>>
+    class TaskRequest
+    class ParsedTask
+    class TaskQuery <<Builder>>
+    enum Priority {
+        LOW
+        MEDIUM
+        HIGH
+    }
+}
+
+package repository {
+    interface TaskRepository {
+        +save(task): Task
+        +findById(id)
+        +findAll()
+        +delete(id)
+    }
+
+    class InMemoryTaskRepository <<Singleton>>
+    class IdempotencyStore <<Singleton>>
+}
+
+package service {
+    class TaskService {
+        +addListener(listener)
+        +removeListener(listener)
+    }
+
+    class DateHelper
+    interface TaskFilter {
+        +matches(task): boolean
+    }
+
+    interface SortStrategy
+}
+
+package parser {
+    interface TaskParser {
+        +parse(text, today): ParsedTask
+    }
+
+    class LlmTaskParser
+    class RuleBasedTaskParser
+    class ParserFactory
+
+    interface LlmClient {
+        +send(prompt): String
+    }
+
+    class HttpLlmClient
+    class FakeLlmClient
+    class FaultyLlmClient
+    class SimpleJson
+
+    interface BreakdownStrategy
+    class LlmBreakdownStrategy
+    class RuleBasedBreakdownStrategy
+}
+
+package event {
+    interface TaskEventListener {
+        +onEvent(eventType, task)
+    }
+
+    class ConsoleLogListener
+    class AuditTrailListener
+}
+
+package exception {
+    class ApiException
+    class ValidationException
+    class NotFoundException
+    class ConflictException
+    class BadGatewayException
+    class ServiceUnavailableException
+    class FieldIssue
+}
+
+Main --> TaskApi
+TestRunner --> TaskApi
+TaskApi --> TaskService
+TaskApi --> ApiResponse
+TaskApi --> ErrorResponseFactory
+TaskApi --> IdempotencyStore
+TaskApi ..> TaskRequest
+TaskApi ..> TaskQuery
+
+TaskService --> TaskRepository
+TaskService --> TaskParser
+TaskService --> BreakdownStrategy
+TaskService --> DateHelper
+TaskService o-- TaskEventListener
+TaskService ..> TaskFilter
+TaskService ..> SortStrategy
+TaskService ..> Task
+
+TaskRepository <|.. InMemoryTaskRepository
+InMemoryTaskRepository o-- Task
+TaskBuilder ..> Task : builds
+Task --> Priority
+
+TaskParser <|.. LlmTaskParser
+TaskParser <|.. RuleBasedTaskParser
+TaskParser ..> ParsedTask
+ParserFactory ..> TaskParser
+LlmTaskParser --> LlmClient
+LlmTaskParser --> SimpleJson
+
+LlmClient <|.. HttpLlmClient
+LlmClient <|.. FakeLlmClient
+LlmClient <|.. FaultyLlmClient
+HttpLlmClient --> SimpleJson
+
+BreakdownStrategy <|.. LlmBreakdownStrategy
+BreakdownStrategy <|.. RuleBasedBreakdownStrategy
+LlmBreakdownStrategy --> LlmClient
+
+TaskEventListener <|.. ConsoleLogListener
+TaskEventListener <|.. AuditTrailListener
+
+ApiException <|-- ValidationException
+ApiException <|-- NotFoundException
+ApiException <|-- ConflictException
+ApiException <|-- BadGatewayException
+ApiException <|-- ServiceUnavailableException
+ValidationException o-- FieldIssue
+ErrorResponseFactory ..> ApiException
+
+@enduml
+
+//Symbol	Meaning here
+  A --> B	A uses or holds B
+  A ..> B	A depends on B
+  Interface <|.. Class	Class implements the interface
+  Parent <|-- Child	Child extends the parent
+  A o-- B	A holds references to B objects
