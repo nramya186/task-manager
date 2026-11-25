@@ -146,4 +146,46 @@ public class TaskService {
 
         repository.delete(id);
     }
+    public Task createSubtask(int parentId, TaskRequest request) {
+        Task parent = getTask(parentId);
+
+        if (parent.getParentId() != null) {
+            throw new ValidationException(
+                    "parentId",
+                    "a subtask cannot have subtasks"
+            );
+        }
+
+        validateRequest(request);
+
+        Priority priority = request.getPriority() == null
+                ? Priority.MEDIUM
+                : Priority.valueOf(request.getPriority());
+
+        Task subtask = Task.builder(
+                        request.getTitle(),
+                        request.getDescription(),
+                        Boolean.parseBoolean(request.getCompleted())
+                )
+                .dueDate(request.getDueDate())
+                .priority(priority)
+                .parentId(parentId)
+                .build();
+
+        return repository.save(subtask);
+    }
+
+    public List<Task> listSubtasks(int parentId) {
+        getTask(parentId);
+
+        List<Task> subtasks = new ArrayList<>();
+
+        for (Task task : repository.findAll()) {
+            if (Integer.valueOf(parentId).equals(task.getParentId())) {
+                subtasks.add(task);
+            }
+        }
+
+        return subtasks;
+    }
 }
