@@ -2,6 +2,13 @@ package api;
 
 
 import exception.ApiException;
+import exception.FieldIssue;
+import exception.ValidationException;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * INSTRUCTOR-PROVIDED SIGNATURES ONLY (Step 3) - students write the bodies.
@@ -32,13 +39,53 @@ public class ErrorResponseFactory {
 
     /** Known failure (400 / 404 / 422 / 502 / 503). */
     public static ApiResponse from(ApiException e) {
-        // TODO (student): build the error body and return new ApiResponse(e.getStatus(), body)
-        throw new UnsupportedOperationException("not implemented yet");
+        // TODO (s): build the error body and return new ApiResponse(e.getStatus(), body)
+        List<Map<String, Object>> details = new ArrayList<>();
+
+        if (e instanceof ValidationException validationException) {
+            for (FieldIssue issue : validationException.getIssues()) {
+                Map<String, Object> detail = new LinkedHashMap<>();
+                detail.put("field", issue.getField());
+                detail.put("issue", issue.getIssue());
+
+                details.add(detail);
+            }
+        }
+
+        return buildResponse(
+                e.getStatus(),
+                e.getCode(),
+                e.getMessage(),
+                details
+        );
     }
 
     /** Anything unexpected: 500, code "INTERNAL_ERROR", same shape. Never leak a stack trace. */
     public static ApiResponse fromUnexpected(Exception e) {
         // TODO (student)
-        throw new UnsupportedOperationException("not implemented yet");
-    }
+        return buildResponse(
+                500,
+                "INTERNAL_ERROR",
+                "An unexpected error occurred",
+                new ArrayList<>()
+        );
 }
+    private static ApiResponse buildResponse(
+            int status,
+            String code,
+            String message,
+            List<Map<String, Object>> details
+    ) {
+        Map<String, Object> error = new LinkedHashMap<>();
+        error.put("code", code);
+        error.put("message", message);
+        error.put("details", details);
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("error", error);
+
+        return new ApiResponse(status, body);
+    }
+
+}
+
