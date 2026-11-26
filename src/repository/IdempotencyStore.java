@@ -72,6 +72,10 @@ public final class IdempotencyStore {
         );
     }
 
+    public synchronized void clear() {
+        records.clear();
+    }
+
     private static final class StoredRecord {
 
         private final String fingerprint;

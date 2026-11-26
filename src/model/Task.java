@@ -14,6 +14,7 @@ public class Task {
     private final Priority priority;
     private final Integer parentId;
     private final long createdAt;
+    private final String recurrence ;
 
     private Task(Builder builder) {
         this.id = builder.id;
@@ -23,9 +24,9 @@ public class Task {
         this.dueDate = builder.dueDate;
         this.priority = builder.priority;
         this.parentId = builder.parentId;
+        this.recurrence=builder.recurrence;
         this.createdAt = builder.createdAt;
     }
-
     public static Builder builder(
             String title,
             String description,
@@ -33,6 +34,10 @@ public class Task {
     ) {
         return new Builder(title, description, completed);
     }
+
+    public String getRecurrence() { return recurrence; }
+   // public Builder recurrence(String recurrence) { this.recurrence = recurrence; return this; }
+
 
     public int getId() {
         return id;
@@ -72,6 +77,7 @@ public class Task {
                 .dueDate(dueDate)
                 .priority(priority)
                 .parentId(parentId)
+                .recurrence(recurrence)
                 .createdAt(createdAt);
     }
 
@@ -85,6 +91,7 @@ public class Task {
         result.put("dueDate", dueDate);
         result.put("priority", priority.name());
         result.put("parentId", parentId);
+        result.put("recurrence", recurrence);
         result.put("createdAt", createdAt);
 
         return result;
@@ -100,6 +107,7 @@ public class Task {
         private String dueDate;
         private Priority priority = Priority.MEDIUM;
         private Integer parentId;
+        private String recurrence = "NONE";
         private long createdAt = System.currentTimeMillis();
 
         private Builder(
@@ -146,6 +154,7 @@ public class Task {
             this.parentId = parentId;
             return this;
         }
+        public Builder recurrence(String recurrence) { this.recurrence = recurrence; return this; }
 
         public Builder createdAt(long createdAt) {
             this.createdAt = createdAt;
@@ -176,7 +185,9 @@ public class Task {
                         "priority must not be null"
                 );
             }
-
+            if (recurrence == null) {
+                recurrence = "NONE";
+            }
             if (id < 0) {
                 throw new IllegalArgumentException(
                         "id must not be negative"
