@@ -89,9 +89,12 @@ public class Main {
 package app;
 
 import api.TaskApi;
+import event.AuditTrailListener;
+import event.ConsoleLogListener;
 import model.TaskRequest;
 import repository.InMemoryTaskRepository;
 import repository.TaskRepository;
+import service.TaskQuery;
 import service.TaskService;
 
 public class Main {
@@ -99,12 +102,52 @@ public class Main {
     public static void main(String[] args) {
         System.out.println("Task Manager started");
 
-        TaskRepository repository =
-                InMemoryTaskRepository.getInstance();
+        InMemoryTaskRepository repository =  InMemoryTaskRepository.getInstance();
 
         TaskService service = new TaskService(repository);
         TaskApi api = new TaskApi(service);
 
+        ConsoleLogListener console = new ConsoleLogListener();
+        AuditTrailListener audit = new AuditTrailListener();
+        service.addListener(console);
+        service.addListener(audit);
+
+        System.out.println("\n1. Create with an idempotency key");
+        TaskRequest rent = new TaskRequest("Pay rent", "Monthly rent", "false", "2026-12-01", "HIGH");
+        System.out.println(api.createTask(rent, "rent-001"));
+
+        System.out.println("\n2. Repeat the same call: repository must still hold one task");
+        System.out.println(api.createTask(rent, "rent-001"));
+        System.out.println(api.listTasks());
+
+        System.out.println("\n3. Validation error");
+        System.out.println(api.createTask(new TaskRequest("", "x", "maybe", null, null), null));
+
+
+        System.out.println("\n4. English to task (offline parser)");
+        System.out.println(api.createTaskFromText("Remind me to call the dentist tomorrow", "text-001"));
+
+        System.out.println("\n5. Break a task down (offline strategy)");
+        api.createTask(new TaskRequest("Buy milk, eggs and bread", "Shopping", "false", null, null), null);
+        System.out.println(api.breakDownTask(3, null));
+
+        System.out.println("\n6. Filter, search, sort and paginate together");
+        System.out.println(api.listTasks(TaskQuery.builder()
+                .completed("false").search("a")
+                .sortBy("dueDate").order("asc")
+                .page(1).pageSize(3).build()));
+
+        System.out.println("\n7. Delete the parent: repository before and after");
+        System.out.println(api.listTasks());
+        System.out.println(api.deleteTask(3));
+        System.out.println(api.listTasks());
+
+        System.out.println("\n8. Remove a listener");
+        System.out.println("Audit counts before: " + audit.getCounts());
+        service.removeListener(audit);
+        api.createTask(new TaskRequest("After removal", "Not counted", "false", null, null), null);
+        System.out.println("Audit counts after:  " + audit.getCounts());
+        /*
         TaskRequest validRequest = new TaskRequest(
                 "Pay rent",
                 "Pay the monthly rent",
@@ -220,6 +263,8 @@ public class Main {
         System.out.println("\n17. Confirm the task list is empty");
         System.out.println(
                 api.listTasks().toJson()
-        );
+        );*/
+
+
     }
 }

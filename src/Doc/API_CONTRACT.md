@@ -1,32 +1,17 @@
 # API_CONTRACT.md
 
-This document describes the public operations exposed by `TaskApi`.
-
-Every `TaskApi` method returns an `ApiResponse`, which contains:
-
-- A numeric `status`
-- A JSON-style `body`
-
-Success bodies contain either a task object, a list of task objects, or a small confirmation object.
-
-Every failure body uses the same error shape described in **Errors**.
-
-`idempotencyKey` is optional and may be `null`. Its behavior is described for each operation that accepts it.
+This document describes the public operations of `TaskApi`. Every method returns an `ApiResponse` with a numeric `status` and a JSON-style `body`.
 
 ## Conventions
 
-- IDs are integers.
-- Dates use the `YYYY-MM-DD` format.
-- Priority values are `LOW`, `MEDIUM`, or `HIGH`.
-- The default priority is `MEDIUM`.
-- A successful creation returns status `201`.
-- A successful read, update, completion, deletion, or listing returns status `200`.
-- Validation failures return status `400`.
-- Unknown task or parent IDs return status `404`.
-- Reusing an idempotency key with a different request returns status `422`.
-- LLM failures or invalid model output return status `502`.
-- A missing `LLM_API_KEY` returns status `503`.
-- Unexpected internal failures return status `500`.
+- Dates use `YYYY-MM-DD`. IDs are integers.
+- `priority` is `LOW`, `MEDIUM` or `HIGH`; the default is `MEDIUM`.
+- Every task body contains: `id`, `title`, `description`, `completed`, `dueDate`, `priority`, `parentId`, `recurrence` (`NONE`, `DAILY`, `WEEKLY`, `MONTHLY` or `YEARLY`) and `createdAt`.
+- `idempotencyKey` is optional (may be `null`). It is accepted by `createTask`, `createTaskFromText` and `breakDownTask`.
+    - Same key and same request: the original response is returned and nothing new is created. The model is not called again.
+    - Same key and a different request: `422 CONFLICT`.
+    - Only successful responses are remembered, so a failed request can be fixed and retried with the same key.
+- Every error uses the single shape described under **Errors**.
 
 ## Operations
 
@@ -35,70 +20,44 @@ Every failure body uses the same error shape described in **Errors**.
 | Item | Value |
 |---|---|
 | Java method | `ApiResponse createTask(TaskRequest request, String idempotencyKey)` |
-| Purpose | Create one task from structured input |
-| Success | `201` — the created task |
+| Purpose | Create one task from structured input. |
+| Success | `201`: the created task |
 | Errors | `400 VALIDATION_ERROR`, `422 CONFLICT`, `500 INTERNAL_ERROR` |
 
-#### Parameters
+**Parameters**
 
 | Name | Type | Required | Rules |
 |---|---|---|---|
-| `title` | String | Yes | Not empty or blank |
-| `description` | String | Yes | Not empty or blank |
-| `completed` | String | Yes | Exactly `"true"` or `"false"` |
-| `dueDate` | String | No | A real calendar date in `YYYY-MM-DD` format; `2026-02-30` is rejected |
-| `priority` | String | No | `LOW`, `MEDIUM`, or `HIGH`; defaults to `MEDIUM` |
-| `idempotencyKey` | String | No | Same key and same request returns the original response; nothing new is created |
+| title | String | yes | Not empty or blank |
+| description | String | yes | Not empty or blank |
+| completed | String | yes | Exactly `"true"` or `"false"` |
+| dueDate | String | no | A real `YYYY-MM-DD` date (`2026-02-30` is rejected) |
+| priority | String | no | `LOW`, `MEDIUM` or `HIGH` (case-sensitive) |
+| idempotencyKey | String | no | See Conventions |
 
-#### Example request
+**Example request**
 
 ```text
-title = "Pay rent"
-description = "Monthly rent"
-completed = "false"
-dueDate = "2026-12-01"
-priority = "HIGH"
-idempotencyKey = "rent-001"
+title = "Pay rent"   description = "Monthly rent"   completed = "false"
+dueDate = "2026-12-01"   priority = "HIGH"   idempotencyKey = "rent-001"
 ```
 
-#### Example success response
+**Example success response**
 
 ```json
-{
-  "status": 201,
-  "body": {
-    "id": 1,
-    "title": "Pay rent",
-    "description": "Monthly rent",
-    "completed": false,
-    "dueDate": "2026-12-01",
-    "priority": "HIGH",
-    "parentId": null,
-    "createdAt": 1788000000000
-  }
-}
+{"status":201,"body":{"id":1,"title":"Pay rent","description":"Monthly rent","completed":false,"dueDate":"2026-12-01","priority":"HIGH","parentId":null,"recurrence":"NONE","createdAt":1795767903039}}
 ```
 
-#### Example error response
-
-Request with `title = ""`:
+**Example error response** (`title = ""`, `completed = "maybe"`)
 
 ```json
-{
-  "status": 400,
-  "body": {
-    "error": {
-      "code": "VALIDATION_ERROR",
-      "message": "Validation failed",
-      "details": [
-        {
-          "field": "title",
-          "issue": "must not be empty"
-        }
-      ]
-    }
-  }
-}
+{"status":400,"body":{"error":{"code":"VALIDATION_ERROR","message":"Validation failed","details":[{"field":"title","issue":"must not be empty"},{"field":"completed","issue":"must be exactly \"true\" or \"false\""}]}}}
+```
+
+**Example error response** (same key, different request)
+
+```json
+{"status":422,"body":{"error":{"code":"CONFLICT","message":"Idempotency key reused with a different request","details":[]}}}
 ```
 
 ### getTask
@@ -106,139 +65,86 @@ Request with `title = ""`:
 | Item | Value |
 |---|---|
 | Java method | `ApiResponse getTask(int id)` |
-| Purpose | Retrieve one task by its ID |
-| Success | `200` — the requested task |
+| Purpose | Fetch one task, including a subtask, by its ID. |
+| Success | `200`: the task |
 | Errors | `404 NOT_FOUND`, `500 INTERNAL_ERROR` |
 
-#### Parameters
+**Parameters**
 
 | Name | Type | Required | Rules |
 |---|---|---|---|
-| `id` | int | Yes | Must identify an existing task |
+| id | int | yes | Must match an existing task |
 
-#### Example request
+**Example request**: `id = 1`
 
-```text
-id = 1
-```
-
-#### Example success response
+**Example success response**
 
 ```json
-{
-  "status": 200,
-  "body": {
-    "id": 1,
-    "title": "Pay rent",
-    "description": "Monthly rent",
-    "completed": false,
-    "dueDate": "2026-12-01",
-    "priority": "HIGH",
-    "parentId": null,
-    "createdAt": 1788000000000
-  }
-}
+{"status":200,"body":{"id":1,"title":"Pay rent","description":"Monthly rent","completed":false,"dueDate":"2026-12-01","priority":"HIGH","parentId":null,"recurrence":"NONE","createdAt":1795767903039}}
 ```
 
-#### Example error response
-
-Request with `id = 999`, where no task has that ID:
+**Example error response** (`id = 99`)
 
 ```json
-{
-  "status": 404,
-  "body": {
-    "error": {
-      "code": "NOT_FOUND",
-      "message": "Task not found",
-      "details": []
-    }
-  }
-}
+{"status":404,"body":{"error":{"code":"NOT_FOUND","message":"Task not found","details":[]}}}
 ```
 
-### listTasks
+### listTasks (all tasks)
+
+| Item | Value |
+|---|---|
+| Java method | `ApiResponse listTasks()` |
+| Purpose | Return every stored task, with no filtering or paging. |
+| Success | `200`: an array of tasks (empty array when there are none) |
+| Errors | `500 INTERNAL_ERROR` |
+
+**Example success response**
+
+```json
+{"status":200,"body":[{"id":1,"title":"Pay rent","description":"Monthly rent","completed":false,"dueDate":"2026-12-01","priority":"HIGH","parentId":null,"recurrence":"NONE","createdAt":1795767903039}]}
+```
+
+### listTasks (query)
 
 | Item | Value |
 |---|---|
 | Java method | `ApiResponse listTasks(TaskQuery query)` |
-| Purpose | Filter, search, sort, and paginate tasks |
-| Success | `200` — a page of matching tasks |
+| Purpose | Filter, search, sort and paginate tasks in one call. |
+| Success | `200`: a page object |
 | Errors | `400 VALIDATION_ERROR`, `500 INTERNAL_ERROR` |
 
-#### Parameters
+**Parameters** (every field is optional; `null` query means defaults)
 
-All `TaskQuery` fields are optional.
+| Name | Type | Rules |
+|---|---|---|
+| completed | String | `"true"` or `"false"` |
+| priority | String | `LOW`, `MEDIUM` or `HIGH` |
+| search | String | Case-insensitive match in title or description |
+| sortBy | String | `createdAt` (default) or `dueDate`; tasks without a due date sort last |
+| order | String | `asc` (default) or `desc` |
+| page | int | 1 or more; default 1 |
+| pageSize | int | 1 to 100; default 10 |
 
-| Name | Type | Required | Rules |
-|---|---|---|---|
-| `completed` | String | No | Exactly `"true"` or `"false"` |
-| `priority` | String | No | `LOW`, `MEDIUM`, or `HIGH` |
-| `search` | String | No | Matches task title or description text |
-| `dueBefore` | String | No | A real calendar date in `YYYY-MM-DD` format |
-| `dueAfter` | String | No | A real calendar date in `YYYY-MM-DD` format |
-| `sortBy` | String | No | Supported values: `title`, `dueDate`, `priority`, `createdAt` |
-| `sortDirection` | String | No | `asc` or `desc`; defaults to `asc` |
-| `page` | String | No | Positive integer; defaults to `1` |
-| `pageSize` | String | No | Positive integer; defaults to `10` |
+Java callers can also plug in new filters (`addFilter`) or a sort (`sortStrategy`) without changing existing classes.
 
-#### Example request
+**Example request**
 
 ```text
-completed = "false"
-priority = "HIGH"
-search = "rent"
-sortBy = "dueDate"
-sortDirection = "asc"
-page = "1"
-pageSize = "10"
+completed = "false"   search = "a"   sortBy = "dueDate"   order = "asc"   page = 1   pageSize = 3
 ```
 
-#### Example success response
+**Example success response** (items shortened to one entry)
 
 ```json
-{
-  "status": 200,
-  "body": {
-    "page": 1,
-    "pageSize": 10,
-    "totalTasks": 1,
-    "tasks": [
-      {
-        "id": 1,
-        "title": "Pay rent",
-        "description": "Monthly rent",
-        "completed": false,
-        "dueDate": "2026-12-01",
-        "priority": "HIGH",
-        "parentId": null,
-        "createdAt": 1788000000000
-      }
-    ]
-  }
-}
+{"status":200,"body":{"items":[{"id":2,"title":"Call the dentist","description":"Remind me to call the dentist tomorrow","completed":false,"dueDate":"2026-11-28","priority":"MEDIUM","parentId":null,"recurrence":"NONE","createdAt":1795767903075}],"page":1,"pageSize":3,"totalItems":6,"totalPages":2}}
 ```
 
-#### Example error response
+A page past the last one still returns `200` with `"items":[]` and the real `totalItems`.
 
-Request with `priority = "URGENT"`:
+**Example error response** (`priority = "URGENT"`) *(replace with real output)*
 
 ```json
-{
-  "status": 400,
-  "body": {
-    "error": {
-      "code": "VALIDATION_ERROR",
-      "message": "Validation failed",
-      "details": [
-        {
-          "field": "priority",
-          "issue": "must be LOW, MEDIUM, or HIGH"
-        }
-      ]
-    }
-  }
-}
+{"status":400,"body":{"error":{"code":"VALIDATION_ERROR","message":"Validation failed","details":[{"field":"priority","issue":"must be LOW, MEDIUM, or HIGH"}]}}}
 ```
 
 ### updateTask
@@ -246,70 +152,29 @@ Request with `priority = "URGENT"`:
 | Item | Value |
 |---|---|
 | Java method | `ApiResponse updateTask(int id, TaskRequest request)` |
-| Purpose | Replace the editable fields of an existing task |
-| Success | `200` — the updated task |
+| Purpose | Replace the editable fields of an existing task. `id`, `parentId`, `recurrence` and `createdAt` are kept. |
+| Success | `200`: the updated task |
 | Errors | `400 VALIDATION_ERROR`, `404 NOT_FOUND`, `500 INTERNAL_ERROR` |
 
-#### Parameters
+**Parameters**: `id` (int, must exist), plus the same five fields and rules as `createTask`. A missing `dueDate` clears the date; a missing `priority` becomes `MEDIUM`.
 
-| Name | Type | Required | Rules |
-|---|---|---|---|
-| `id` | int | Yes | Must identify an existing task |
-| `title` | String | Yes | Not empty or blank |
-| `description` | String | Yes | Not empty or blank |
-| `completed` | String | Yes | Exactly `"true"` or `"false"` |
-| `dueDate` | String | No | A real calendar date in `YYYY-MM-DD` format |
-| `priority` | String | No | `LOW`, `MEDIUM`, or `HIGH`; defaults to `MEDIUM` |
-
-#### Example request
+**Example request**
 
 ```text
-id = 1
-title = "Pay rent"
-description = "Monthly rent for December"
-completed = "false"
-dueDate = "2026-12-01"
-priority = "HIGH"
+id = 1   title = "Pay rent"   description = "Monthly rent, December"   completed = "true"
+dueDate = "2026-12-01"   priority = "HIGH"
 ```
 
-#### Example success response
+**Example success response** *(replace with real output)*
 
 ```json
-{
-  "status": 200,
-  "body": {
-    "id": 1,
-    "title": "Pay rent",
-    "description": "Monthly rent for December",
-    "completed": false,
-    "dueDate": "2026-12-01",
-    "priority": "HIGH",
-    "parentId": null,
-    "createdAt": 1788000000000
-  }
-}
+{"status":200,"body":{"id":1,"title":"Pay rent","description":"Monthly rent, December","completed":true,"dueDate":"2026-12-01","priority":"HIGH","parentId":null,"recurrence":"NONE","createdAt":1795767903039}}
 ```
 
-#### Example error response
-
-Request with `completed = "yes"`:
+**Example error response** (`title = ""`) *(replace with real output)*
 
 ```json
-{
-  "status": 400,
-  "body": {
-    "error": {
-      "code": "VALIDATION_ERROR",
-      "message": "Validation failed",
-      "details": [
-        {
-          "field": "completed",
-          "issue": "must be exactly true or false"
-        }
-      ]
-    }
-  }
-}
+{"status":400,"body":{"error":{"code":"VALIDATION_ERROR","message":"Validation failed","details":[{"field":"title","issue":"must not be empty"}]}}}
 ```
 
 ### deleteTask
@@ -317,50 +182,28 @@ Request with `completed = "yes"`:
 | Item | Value |
 |---|---|
 | Java method | `ApiResponse deleteTask(int id)` |
-| Purpose | Delete a task and all of its direct subtasks |
-| Success | `200` — confirmation that the task was deleted |
+| Purpose | Delete a task together with its direct subtasks. |
+| Success | `200`: a confirmation |
 | Errors | `404 NOT_FOUND`, `500 INTERNAL_ERROR` |
 
-#### Parameters
+**Parameters**
 
 | Name | Type | Required | Rules |
 |---|---|---|---|
-| `id` | int | Yes | Must identify an existing task |
+| id | int | yes | Must match an existing task |
 
-#### Example request
+**Example request**: `id = 3`
 
-```text
-id = 1
-```
-
-#### Example success response
+**Example success response**
 
 ```json
-{
-  "status": 200,
-  "body": {
-    "message": "Task deleted",
-    "deletedTaskId": 1,
-    "deletedSubtaskIds":[2][3]
-  }
-}
+{"status":200,"body":{"message":"Task deleted","deletedTaskId":3}}
 ```
 
-#### Example error response
-
-Request with `id = 999`:
+**Example error response** (`id = 3` again, already deleted)
 
 ```json
-{
-  "status": 404,
-  "body": {
-    "error": {
-      "code": "NOT_FOUND",
-      "message": "Task not found",
-      "details": []
-    }
-  }
-}
+{"status":404,"body":{"error":{"code":"NOT_FOUND","message":"Task not found","details":[]}}}
 ```
 
 ### createTaskFromText
@@ -368,70 +211,46 @@ Request with `id = 999`:
 | Item | Value |
 |---|---|
 | Java method | `ApiResponse createTaskFromText(String text, String idempotencyKey)` |
-| Purpose | Create a task from plain English using a task parser |
-| Success | `201` — the created task |
-| Errors | `400 VALIDATION_ERROR`, `422 CONFLICT`, `502 BAD_GATEWAY`, `503 SERVICE_UNAVAILABLE`, `500 INTERNAL_ERROR` |
+| Purpose | Turn plain English into a validated task using the configured parser. |
+| Success | `201`: the created task |
+| Errors | `400`, `422 CONFLICT`, `502 BAD_GATEWAY`, `503 SERVICE_UNAVAILABLE`, `500` |
 
-#### Parameters
+**Parameters**
 
 | Name | Type | Required | Rules |
 |---|---|---|---|
-| `text` | String | Yes | Not empty or blank |
-| `idempotencyKey` | String | No | Same key and same request returns the original response; the parser is not called again |
+| text | String | yes | Not empty or blank |
+| idempotencyKey | String | no | See Conventions |
 
-#### Behavior
+**Behavior**
 
-- If `LLM_API_KEY` is missing or blank, return `503 SERVICE_UNAVAILABLE`.
-- If the parser is the LLM parser and the model call fails, times out, returns malformed output, or returns invalid task data, return `502 BAD_GATEWAY`.
-- The parsed result is converted into a `TaskRequest` and validated using the same rules as `createTask`.
-- No task is saved if validation fails.
+- The model's reply is never trusted: the title, date, and recurrence are validated with the same rules as `createTask`.
+- A failed call, a timeout, malformed output, or invalid output returns `502` and saves nothing.
+- With the real model and no `LLM_API_KEY`, the response is `503`.
+- A missing description is replaced by the title.
 
-#### Example request
+**Example request**
 
 ```text
-text = "Remind me to pay rent on the 1st of every month"
-idempotencyKey = "rent-text-001"
+text = "Remind me to pay rent on the 1st of every month"   idempotencyKey = "real-1"
 ```
 
-#### Example success response
+**Example success response**
 
 ```json
-{
-  "status": 201,
-  "body": {
-    "id": 4,
-    "title": "Pay rent",
-    "description": "Pay monthly rent",
-    "completed": false,
-    "dueDate": "2026-12-01",
-    "priority": "MEDIUM",
-    "parentId": null,
-    "recurrence": "MONTHLY",
-    "createdAt": 1788000000000
-  }
-}
+{"status":201,"body":{"id":1,"title":"Pay rent","description":"Pay the monthly rent","completed":false,"dueDate":"2026-12-01","priority":"MEDIUM","parentId":null,"recurrence":"MONTHLY","createdAt":1795762683200}}
 ```
 
-#### Example error response
-
-LLM returns an empty title:
+**Example error response** (the model replied with something that was not JSON) *(replace with real output)*
 
 ```json
-{
-  "status": 502,
-  "body": {
-    "error": {
-      "code": "BAD_GATEWAY",
-      "message": "LLM output failed validation",
-      "details": [
-        {
-          "field": "title",
-          "issue": "must not be empty"
-        }
-      ]
-    }
-  }
-}
+{"status":502,"body":{"error":{"code":"BAD_GATEWAY","message":"The model reply was not a valid JSON object","details":[]}}}
+```
+
+**Example error response** (no key)
+
+```json
+{"status":503,"body":{"error":{"code":"SERVICE_UNAVAILABLE","message":"LLM_API_KEY is not set","details":[]}}}
 ```
 
 ### createSubtask
@@ -439,69 +258,29 @@ LLM returns an empty title:
 | Item | Value |
 |---|---|
 | Java method | `ApiResponse createSubtask(int parentId, TaskRequest request)` |
-| Purpose | Create a task that belongs to an existing parent task |
-| Success | `201` — the created subtask |
-| Errors | `400 VALIDATION_ERROR`, `404 NOT_FOUND`, `500 INTERNAL_ERROR` |
+| Purpose | Create a task under an existing top-level task. |
+| Success | `201`: the created subtask, with `parentId` set |
+| Errors | `400 VALIDATION_ERROR`, `404 NOT_FOUND`, `500` |
 
-#### Parameters
+**Parameters**: `parentId` (int; must exist and must not be a subtask), plus the five fields and rules from `createTask`.
 
-| Name | Type | Required | Rules |
-|---|---|---|---|
-| `parentId` | int | Yes | Must identify an existing task that is not itself a subtask |
-| `title` | String | Yes | Not empty or blank |
-| `description` | String | Yes | Not empty or blank |
-| `completed` | String | Yes | Exactly `"true"` or `"false"` |
-| `dueDate` | String | No | A real calendar date in `YYYY-MM-DD` format |
-| `priority` | String | No | `LOW`, `MEDIUM`, or `HIGH`; defaults to `MEDIUM` |
-
-#### Example request
+**Example request**
 
 ```text
-parentId = 1
-title = "Find bank account details"
-description = "Locate the landlord's bank details"
-completed = "false"
-priority = "HIGH"
+parentId = 1   title = "Write tests"   description = "Check task creation and validation"
+completed = "false"   priority = "HIGH"
 ```
 
-#### Example success response
+**Example success response**
 
 ```json
-{
-  "status": 201,
-  "body": {
-    "id": 5,
-    "title": "Find bank account details",
-    "description": "Locate the landlord's bank details",
-    "completed": false,
-    "dueDate": null,
-    "priority": "HIGH",
-    "parentId": 1,
-    "createdAt": 1788000000000
-  }
-}
+{"status":201,"body":{"id":2,"title":"Write tests","description":"Check task creation and validation","completed":false,"dueDate":null,"priority":"HIGH","parentId":1,"recurrence":"NONE","createdAt":1795719406354}}
 ```
 
-#### Example error response
-
-Request where `parentId = 5` and task 5 is already a subtask:
+**Example error response** (`parentId = 2`, which is already a subtask)
 
 ```json
-{
-  "status": 400,
-  "body": {
-    "error": {
-      "code": "VALIDATION_ERROR",
-      "message": "Validation failed",
-      "details": [
-        {
-          "field": "parentId",
-          "issue": "a subtask cannot have subtasks"
-        }
-      ]
-    }
-  }
-}
+{"status":400,"body":{"error":{"code":"VALIDATION_ERROR","message":"Validation failed","details":[{"field":"parentId","issue":"a subtask cannot have subtasks"}]}}}
 ```
 
 ### listSubtasks
@@ -509,60 +288,28 @@ Request where `parentId = 5` and task 5 is already a subtask:
 | Item | Value |
 |---|---|
 | Java method | `ApiResponse listSubtasks(int parentId)` |
-| Purpose | List all direct subtasks of an existing parent task |
-| Success | `200` — a list of subtasks |
-| Errors | `404 NOT_FOUND`, `500 INTERNAL_ERROR` |
+| Purpose | List the direct subtasks of a task. |
+| Success | `200`: an array (empty if the task has none) |
+| Errors | `404 NOT_FOUND`, `500` |
 
-#### Parameters
+**Parameters**
 
 | Name | Type | Required | Rules |
 |---|---|---|---|
-| `parentId` | int | Yes | Must identify an existing task |
+| parentId | int | yes | Must match an existing task |
 
-#### Example request
+**Example request**: `parentId = 1`
 
-```text
-parentId = 1
-```
-
-#### Example success response
+**Example success response** (shortened to one entry)
 
 ```json
-{
-  "status": 200,
-  "body": {
-    "parentId": 1,
-    "subtasks": [
-      {
-        "id": 5,
-        "title": "Find bank account details",
-        "description": "Locate the landlord's bank details",
-        "completed": false,
-        "dueDate": null,
-        "priority": "HIGH",
-        "parentId": 1,
-        "createdAt": 1788000000000
-      }
-    ]
-  }
-}
+{"status":200,"body":[{"id":2,"title":"Write tests","description":"Check task creation and validation","completed":false,"dueDate":null,"priority":"HIGH","parentId":1,"recurrence":"NONE","createdAt":1795719406354}]}
 ```
 
-#### Example error response
-
-Request with `parentId = 999`:
+**Example error response** (`parentId = 999`)
 
 ```json
-{
-  "status": 404,
-  "body": {
-    "error": {
-      "code": "NOT_FOUND",
-      "message": "Parent task not found",
-      "details": []
-    }
-  }
-}
+{"status":404,"body":{"error":{"code":"NOT_FOUND","message":"Task not found","details":[]}}}
 ```
 
 ### breakDownTask
@@ -570,195 +317,99 @@ Request with `parentId = 999`:
 | Item | Value |
 |---|---|
 | Java method | `ApiResponse breakDownTask(int id, String idempotencyKey)` |
-| Purpose | Break an existing parent task into validated subtasks |
-| Success | `201` — the parent task and its created subtasks |
-| Errors | `400 VALIDATION_ERROR`, `404 NOT_FOUND`, `422 CONFLICT`, `502 BAD_GATEWAY`, `503 SERVICE_UNAVAILABLE`, `500 INTERNAL_ERROR` |
+| Purpose | Ask the breakdown strategy for subtasks of a task and save them. |
+| Success | `201`: an array of the created subtasks |
+| Errors | `400 VALIDATION_ERROR`, `404`, `422 CONFLICT`, `502`, `503`, `500` |
 
-#### Parameters
+**Parameters**
 
 | Name | Type | Required | Rules |
 |---|---|---|---|
-| `id` | int | Yes | Must identify an existing task that is not itself a subtask |
-| `idempotencyKey` | String | No | Same key and same request returns the original response; no additional subtasks are created |
+| id | int | yes | Must match an existing task that is not itself a subtask |
+| idempotencyKey | String | no | See Conventions |
 
-#### Behavior
+**Behavior**
 
-- A task that is already a subtask cannot be broken down; return `400 VALIDATION_ERROR`.
-- If `LLM_API_KEY` is missing or blank, return `503 SERVICE_UNAVAILABLE`.
-- If the breakdown strategy fails, returns malformed output, or produces any invalid subtask, return `502 BAD_GATEWAY`.
-- All subtasks must be valid before any are saved; the operation is all-or-nothing.
+- Every generated item is validated before anything is saved. One bad item, a malformed line, an empty reply, or a failed call means nothing is saved and the response is `502`.
+- A subtask cannot be broken down: `400`.
+- With the real model and no key: `503`.
 
-#### Example request
+**Example request**: `id = 2   idempotencyKey = "real-bd-1"`
 
-```text
-id = 1
-idempotencyKey = "rent-breakdown-001"
-```
-
-#### Example success response
+**Example success response** (shortened to two entries)
 
 ```json
-{
-  "status": 201,
-  "body": {
-    "parentTask": {
-      "id": 1,
-      "title": "Pay rent",
-      "description": "Monthly rent",
-      "completed": false,
-      "dueDate": "2026-12-01",
-      "priority": "HIGH",
-      "parentId": null,
-      "createdAt": 1788000000000
-    },
-    "subtasks": [
-      {
-        "id": 6,
-        "title": "Check rent amount",
-        "description": "Confirm the amount due this month",
-        "completed": false,
-        "dueDate": null,
-        "priority": "MEDIUM",
-        "parentId": 1,
-        "createdAt": 1788000000000
-      },
-      {
-        "id": 7,
-        "title": "Make rent payment",
-        "description": "Transfer the rent payment",
-        "completed": false,
-        "dueDate": null,
-        "priority": "MEDIUM",
-        "parentId": 1,
-        "createdAt": 1788000000000
-      }
-    ]
-  }
-}
+{"status":201,"body":[{"id":3,"title":"Choose a date","description":"Pick a date that suits the guests for Sunday","completed":false,"dueDate":null,"priority":"MEDIUM","parentId":2,"recurrence":"NONE","createdAt":1795762684660},{"id":4,"title":"Send invitations","description":"Invite the guests by message","completed":false,"dueDate":null,"priority":"MEDIUM","parentId":2,"recurrence":"NONE","createdAt":1795762684660}]}
 ```
 
-#### Example error response
-
-LLM returns an invalid subtask title:
+**Example error response** (item 2 had an empty title) *(replace with real output)*
 
 ```json
-{
-  "status": 502,
-  "body": {
-    "error": {
-      "code": "BAD_GATEWAY",
-      "message": "LLM breakdown output failed validation",
-      "details": [
-        {
-          "field": "title",
-          "issue": "must not be empty"
-        }
-      ]
-    }
-  }
-}
+{"status":502,"body":{"error":{"code":"BAD_GATEWAY","message":"Breakdown item 2 failed validation: title must not be empty","details":[]}}}
+```
+
+**Example error response** (`id` is a subtask) *(replace with real output)*
+
+```json
+{"status":400,"body":{"error":{"code":"VALIDATION_ERROR","message":"Validation failed","details":[{"field":"id","issue":"a subtask cannot be broken down"}]}}}
 ```
 
 ### listByPriority
 
 | Item | Value |
 |---|---|
-| Java method | `ApiResponse listByPriority(String priority)` |
-| Purpose | List all tasks with a given priority |
-| Success | `200` — a list of matching tasks |
-| Errors | `400 VALIDATION_ERROR`, `500 INTERNAL_ERROR` |
+| Java method | `ApiResponse listByPriority(String level)` |
+| Purpose | List all tasks with one priority level. |
+| Success | `200`: an array |
+| Errors | `400 VALIDATION_ERROR`, `500` |
 
-#### Parameters
+**Parameters**
 
 | Name | Type | Required | Rules |
 |---|---|---|---|
-| `priority` | String | Yes | Must be `LOW`, `MEDIUM`, or `HIGH` |
+| level | String | yes | `LOW`, `MEDIUM` or `HIGH`; `null` is rejected |
 
-#### Example request
+**Example request**: `level = "HIGH"`
 
-```text
-priority = "HIGH"
-```
-
-#### Example success response
+**Example success response** *(replace with real output)*
 
 ```json
-{
-  "status": 200,
-  "body": {
-    "priority": "HIGH",
-    "tasks": [
-      {
-        "id": 1,
-        "title": "Pay rent",
-        "description": "Monthly rent",
-        "completed": false,
-        "dueDate": "2026-12-01",
-        "priority": "HIGH",
-        "parentId": null,
-        "createdAt": 1788000000000
-      }
-    ]
-  }
-}
+{"status":200,"body":[{"id":1,"title":"Pay rent","description":"Monthly rent","completed":false,"dueDate":"2026-12-01","priority":"HIGH","parentId":null,"recurrence":"NONE","createdAt":1795767903039}]}
 ```
 
-#### Example error response
-
-Request with `priority = "URGENT"`:
+**Example error response** (`level = "URGENT"`) *(replace with real output)*
 
 ```json
-{
-  "status": 400,
-  "body": {
-    "error": {
-      "code": "VALIDATION_ERROR",
-      "message": "Validation failed",
-      "details": [
-        {
-          "field": "priority",
-          "issue": "must be LOW, MEDIUM, or HIGH"
-        }
-      ]
-    }
-  }
-}
+{"status":400,"body":{"error":{"code":"VALIDATION_ERROR","message":"Validation failed","details":[{"field":"priority","issue":"must be LOW, MEDIUM, or HIGH"}]}}}
 ```
 
 ## Errors
 
 ### Error shape
 
-Every error, from every operation, uses this exact shape:
-
 ```json
 {
   "error": {
     "code": "VALIDATION_ERROR",
     "message": "Validation failed",
-    "details": [
-      {
-        "field": "title",
-        "issue": "must not be empty"
-      }
-    ]
+    "details": [ { "field": "title", "issue": "must not be empty" } ]
   }
 }
 ```
 
 | Field | Type | Meaning |
 |---|---|---|
-| `error.code` | String | Stable, machine-readable identifier |
-| `error.message` | String | Short human-readable summary |
-| `error.details` | Array | Zero or more `{ "field", "issue" }` entries; empty array when there is nothing field-specific |
+| error.code | string | Stable identifier from the table below |
+| error.message | string | Short human-readable summary |
+| error.details | array | `{ "field", "issue" }` entries for validation errors; empty list otherwise |
 
 ### Error codes
 
 | Status | Code | When it happens |
 |---:|---|---|
-| 400 | `VALIDATION_ERROR` | Input broke a rule; also when breaking down a subtask, giving a subtask a subtask, or using an invalid priority in `listByPriority` |
-| 404 | `NOT_FOUND` | The task ID or parent ID does not exist |
-| 422 | `CONFLICT` | An idempotency key was reused with a different request |
-| 502 | `BAD_GATEWAY` | The model call failed or timed out, or its output failed validation; nothing was saved |
-| 503 | `SERVICE_UNAVAILABLE` | `LLM_API_KEY` is not set |
-| 500 | `INTERNAL_ERROR` | Any unexpected failure; no stack trace is included in the response body |
+| 400 | VALIDATION_ERROR | Input broke a rule; also breaking down a subtask, giving a subtask a subtask, a bad priority level, or a bad query value |
+| 404 | NOT_FOUND | The task or parent ID does not exist |
+| 422 | CONFLICT | An idempotency key was reused with a different request |
+| 502 | BAD_GATEWAY | The model call failed or timed out, or its output failed validation. Nothing was saved |
+| 503 | SERVICE_UNAVAILABLE | `LLM_API_KEY` is not set (real-model mode) |
+| 500 | INTERNAL_ERROR | Any unexpected failure. No stack trace in the body |
